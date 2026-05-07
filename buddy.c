@@ -34,7 +34,8 @@ static int get_page_index(void *ptr) {
 
 static int get_buddy_index(int page_idx, int rank) {
     int block_pages = get_block_pages(rank);
-    return (page_idx / block_pages) ^ 1;
+    int block_start = (page_idx / block_pages) * block_pages;
+    return block_start ^ block_pages;
 }
 
 static void *get_page_address(int page_idx) {
@@ -171,14 +172,24 @@ int return_pages(void *p) {
         if (!buddy_ok)
             break;
 
-        // Remove buddy from free list
+        // Find and remove buddy from free list
         free_block_t *buddy_block = (free_block_t *)get_page_address(buddy_start);
-        free_block_t **prev = &free_lists[rank];
-        while (*prev && *prev != buddy_block) {
-            prev = &(*prev)->next;
-        }
-        if (*prev) {
-            *prev = (*prev)->next;
+
+        // Since we don't have a prev pointer, we need to search
+        // But we can optimize by checking if it's the head
+        if (free_lists[rank] == buddy_block) {
+            free_lists[rank] = buddy_block->next;
+        } else {
+            // Otherwise, we need to search - this is O(n) but should be rare
+            free_block_t *prev = free_lists[rank];
+            if (prev) {
+                while (prev->next && prev->next != buddy_block) {
+                    prev = prev->next;
+                }
+                if (prev->next == buddy_block) {
+                    prev->next = buddy_block->next;
+                }
+            }
         }
 
         // Merge blocks - use the lower address
